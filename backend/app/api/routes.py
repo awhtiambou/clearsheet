@@ -28,6 +28,11 @@ async def scan_document(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": "invalid_image", "message": "The uploaded file is not a valid image."})
     except PipelineError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": exc.code, "message": exc.message})
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "ocr_unavailable", "message": str(exc)},
+        )
 
     return ScanResponse(
         success=True,
