@@ -37,6 +37,9 @@ async def scan_document(
     return ScanResponse(
         success=True,
         metadata=ScanMetadata(
+            filename=file.filename or "upload",
+            filetype=file.content_type or "application/octet-stream",
+            size=len(payload),
             input_width=result.input_width,
             input_height=result.input_height,
             output_width=result.output_width,
