@@ -4,9 +4,15 @@ import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import Divider from "@mui/material/Divider";
+import FormControl from "@mui/material/FormControl";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import InputLabel from "@mui/material/InputLabel";
 import LinearProgress from "@mui/material/LinearProgress";
+import MenuItem from "@mui/material/MenuItem";
 import Paper from "@mui/material/Paper";
+import Select from "@mui/material/Select";
 import Stack from "@mui/material/Stack";
+import Switch from "@mui/material/Switch";
 import Typography from "@mui/material/Typography";
 import { motion } from "framer-motion";
 import Image from "next/image";
@@ -29,6 +35,7 @@ import {
   heroHighlights,
   inputFeatureCards,
   labelChipStyle,
+  ocrLanguageOptions,
   type StageCard,
   workflowDetails,
   workflowPreviewIcon,
@@ -36,10 +43,14 @@ import {
 } from "./scan-workbench.data";
 
 type UploadPanelProps = {
+  debugEnabled: boolean;
   error: string;
   isBusy: boolean;
   onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onOcrLanguagesChange: (value: string) => void;
   onScan: () => void;
+  onToggleDebug: (enabled: boolean) => void;
+  ocrLanguages: string;
   selectedFile: File | null;
 };
 
@@ -47,7 +58,8 @@ type ReviewBoardProps = {
   confidenceValue: number;
   copied: boolean;
   onCopyTranscript: () => void;
-  onDownload: () => void;
+  onDownloadPdf: () => void;
+  onDownloadPng: () => void;
   previewUrl: string;
   result: ScanResponse | null;
   scannedPreview: string;
@@ -56,6 +68,7 @@ type ReviewBoardProps = {
 
 type PipelineSnapshotsProps = {
   hasResult: boolean;
+  isDebugEnabled: boolean;
   stages: StageCard[];
 };
 
@@ -186,10 +199,14 @@ export function ScanWorkbenchHero() {
 }
 
 export function ScanWorkbenchUploadPanel({
+  debugEnabled,
   error,
   isBusy,
   onFileChange,
+  onOcrLanguagesChange,
   onScan,
+  onToggleDebug,
+  ocrLanguages,
   selectedFile,
 }: UploadPanelProps) {
   return (
@@ -244,6 +261,38 @@ export function ScanWorkbenchUploadPanel({
               >
                 {isBusy ? "Processing..." : "Run scan pipeline"}
               </Button>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+              <FormControl fullWidth size="small">
+                <InputLabel id="ocr-language-label">OCR Profile</InputLabel>
+                <Select
+                  labelId="ocr-language-label"
+                  value={ocrLanguages}
+                  label="OCR Profile"
+                  onChange={(event) => onOcrLanguagesChange(event.target.value)}
+                >
+                  {ocrLanguageOptions.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <div className="flex items-center rounded-[20px] border border-white/70 bg-white/75 px-4 py-2">
+                <FormControlLabel
+                  className="m-0"
+                  control={
+                    <Switch
+                      color="primary"
+                      checked={debugEnabled}
+                      onChange={(_, checked) => onToggleDebug(checked)}
+                    />
+                  }
+                  label="Debug snapshots"
+                />
+              </div>
             </div>
 
             {selectedFile ? (
@@ -305,7 +354,8 @@ export function ScanWorkbenchReviewBoard({
   confidenceValue,
   copied,
   onCopyTranscript,
-  onDownload,
+  onDownloadPdf,
+  onDownloadPng,
   previewUrl,
   result,
   scannedPreview,
@@ -338,10 +388,19 @@ export function ScanWorkbenchReviewBoard({
               variant="contained"
               color="primary"
               startIcon={<FiDownload />}
-              onClick={onDownload}
+              onClick={onDownloadPng}
               disabled={!result?.images.scan_png_base64}
             >
-              Download scan
+              Download PNG
+            </Button>
+            <Button
+              variant="outlined"
+              color="primary"
+              startIcon={<FiFileText />}
+              onClick={onDownloadPdf}
+              disabled={!result?.images.scan_png_base64}
+            >
+              Download PDF
             </Button>
           </div>
         </div>
@@ -427,6 +486,7 @@ export function ScanWorkbenchReviewBoard({
 
 export function ScanWorkbenchSnapshots({
   hasResult,
+  isDebugEnabled,
   stages,
 }: PipelineSnapshotsProps) {
   return (
@@ -441,7 +501,13 @@ export function ScanWorkbenchSnapshots({
           </Typography>
         </div>
         <Chip
-          label={hasResult ? "Debug ready" : "Waiting for result"}
+          label={
+            !isDebugEnabled
+              ? "Debug disabled"
+              : hasResult
+                ? "Debug ready"
+                : "Waiting for result"
+          }
           variant="outlined"
           sx={labelChipStyle}
         />

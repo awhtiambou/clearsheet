@@ -33,8 +33,12 @@ export function ScanWorkbench() {
             selectedFile={workbench.selectedFile}
             isBusy={workbench.isBusy}
             error={workbench.error}
+            debugEnabled={workbench.debugEnabled}
+            ocrLanguages={workbench.ocrLanguages}
             onFileChange={workbench.handleFileChange}
+            onOcrLanguagesChange={workbench.handleOcrLanguagesChange}
             onScan={workbench.handleScan}
+            onToggleDebug={workbench.handleToggleDebug}
           />
         </motion.div>
 
@@ -52,7 +56,8 @@ export function ScanWorkbench() {
               confidenceValue={workbench.confidenceValue}
               transcript={workbench.deferredTranscript}
               onCopyTranscript={workbench.handleCopyTranscript}
-              onDownload={workbench.handleDownload}
+              onDownloadPdf={workbench.handleDownloadPdf}
+              onDownloadPng={workbench.handleDownload}
             />
           </motion.div>
 
@@ -64,6 +69,7 @@ export function ScanWorkbench() {
             <ScanWorkbenchSnapshots
               stages={workbench.stages}
               hasResult={Boolean(workbench.result)}
+              isDebugEnabled={workbench.debugEnabled}
             />
           </motion.div>
         </div>

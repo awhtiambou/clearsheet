@@ -16,6 +16,11 @@ export type StageCard = {
   image: string | null | undefined;
 };
 
+export type OcrLanguageOption = {
+  label: string;
+  value: string;
+};
+
 export const labelChipStyle = {
   borderColor: "rgba(189, 195, 199, 0.55)",
   bgcolor: "rgba(255,255,255,0.65)",
@@ -25,7 +30,7 @@ export const labelChipStyle = {
 export const heroChips: Array<{ icon: IconType; label: string }> = [
   { icon: FiSearch, label: "Document Geometry" },
   { icon: FiZap, label: "Adaptive Threshold" },
-  { icon: FiFileText, label: "OCR fra+eng" },
+  { icon: FiFileText, label: "Configurable OCR" },
 ];
 
 export const heroHighlights = [
@@ -70,21 +75,27 @@ export const inputFeatureCards: Array<{
   {
     icon: FiLayers,
     label: "Debug mode",
-    value: "Enabled",
-    note: "Contours, edges, and warp previews stay visible.",
+    value: "Optional",
+    note: "Keep snapshots on when you want to inspect contour and warp stages.",
   },
   {
     icon: FiFileText,
     label: "OCR languages",
-    value: "fra + eng",
-    note: "Bilingual-ready defaults aligned with the backend.",
+    value: "Selectable",
+    note: "Switch between bilingual and single-language OCR presets.",
   },
   {
     icon: FiImage,
     label: "Delivery",
-    value: "PNG scan",
-    note: "Clean export optimized for reading and OCR review.",
+    value: "PNG + PDF",
+    note: "Download the cleaned scan either as an image or as a PDF page.",
   },
+];
+
+export const ocrLanguageOptions: OcrLanguageOption[] = [
+  { label: "French + English", value: "fra+eng" },
+  { label: "English only", value: "eng" },
+  { label: "French only", value: "fra" },
 ];
 
 export function buildStageCards(result: ScanResponse | null): StageCard[] {

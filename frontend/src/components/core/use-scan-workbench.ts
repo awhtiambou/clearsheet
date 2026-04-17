@@ -6,10 +6,13 @@ import { API_BASE_URL, toDataUrl } from "@/src/config";
 import type { ApiErrorResponse, ScanResponse } from "@/src/types";
 
 import { buildStageCards } from "./scan-workbench.data";
+import { downloadDataUrl, downloadDataUrlAsPdf } from "./scan-export";
 
 const DEFAULT_OCR_LANGS = "fra+eng";
 
 export function useScanWorkbench() {
+  const [debugEnabled, setDebugEnabled] = useState(true);
+  const [ocrLanguages, setOcrLanguages] = useState(DEFAULT_OCR_LANGS);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [result, setResult] = useState<ScanResponse | null>(null);
@@ -59,8 +62,8 @@ export function useScanWorkbench() {
 
     const formData = new FormData();
     formData.append("file", selectedFile);
-    formData.append("debug", "true");
-    formData.append("ocr_langs", DEFAULT_OCR_LANGS);
+    formData.append("debug", String(debugEnabled));
+    formData.append("ocr_langs", ocrLanguages);
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/v1/scan`, {
@@ -108,23 +111,46 @@ export function useScanWorkbench() {
       return;
     }
 
-    const anchor = document.createElement("a");
     const filename = selectedFile?.name.replace(/\.[^.]+$/, "") || "clearsheet";
-    anchor.href = toDataUrl(result.images.scan_png_base64);
-    anchor.download = `${filename}-scan.png`;
-    anchor.click();
+    downloadDataUrl(toDataUrl(result.images.scan_png_base64), `${filename}-scan.png`);
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!result?.images.scan_png_base64) {
+      return;
+    }
+
+    const filename = selectedFile?.name.replace(/\.[^.]+$/, "") || "clearsheet";
+
+    try {
+      await downloadDataUrlAsPdf(
+        toDataUrl(result.images.scan_png_base64),
+        `${filename}-scan.pdf`,
+      );
+    } catch (pdfError) {
+      const message =
+        pdfError instanceof Error
+          ? pdfError.message
+          : "The scan could not be exported as a PDF.";
+      setError(message);
+    }
   };
 
   return {
     confidenceValue,
     copied,
     deferredTranscript,
+    debugEnabled,
     error,
     handleCopyTranscript,
     handleDownload,
+    handleDownloadPdf,
     handleFileChange,
+    handleOcrLanguagesChange: setOcrLanguages,
     handleScan,
+    handleToggleDebug: setDebugEnabled,
     isBusy,
+    ocrLanguages,
     previewUrl,
     result,
     scannedPreview,
