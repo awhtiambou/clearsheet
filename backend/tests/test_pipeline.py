@@ -43,3 +43,26 @@ def test_process_document_without_debug_skips_optional_images(monkeypatch, docum
     assert result.edges_png_base64 is None
     assert result.contour_png_base64 is None
     assert result.warped_png_base64 is None
+
+
+def test_process_document_handles_low_contrast_photo(
+    monkeypatch,
+    low_contrast_document_jpg_bytes: bytes,
+) -> None:
+    from app.core import pipeline
+
+    monkeypatch.setattr(pipeline, "extract_text", lambda image, languages: ("Low Contrast OCR", 72.5))
+
+    result = process_document(low_contrast_document_jpg_bytes, debug=True, languages="eng")
+
+    assert result.input_width == 700
+    assert result.input_height == 900
+    assert result.output_width > 0
+    assert result.output_height > 0
+    assert result.text == "Low Contrast OCR"
+    assert result.mean_confidence == 72.5
+    assert result.languages == "eng"
+    assert result.scan_png_base64
+    assert result.edges_png_base64
+    assert result.contour_png_base64
+    assert result.warped_png_base64

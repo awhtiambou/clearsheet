@@ -30,14 +30,14 @@ def process_document(file_bytes: bytes, debug: bool, languages: str) -> ScanResu
 
     resized, scale = resize_for_detection(original)
     stages = preprocess_for_detection(resized)
-    contour = find_document_contour(stages["edges"])
+    contour = find_document_contour(stages["edges"], stages.get("document_mask"))
     if contour is None:
         raise PipelineError("document_not_found", "No 4-point document contour was detected.")
 
     contour_full = contour * scale
     warped = warp_document(original, contour_full)
     scan = build_scan_image(warped)
-    text, mean_confidence = extract_text(scan, languages)
+    text, mean_confidence = extract_text(warped, languages)
 
     return ScanResult(
         input_width=input_width,

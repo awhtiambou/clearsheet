@@ -2,6 +2,7 @@ import base64
 import cv2
 import numpy as np
 
+
 def decode_image(file_bytes: bytes) -> np.ndarray:
     if not file_bytes:
         raise ValueError("invalid_image")
@@ -37,16 +38,40 @@ def preprocess_for_detection(image: np.ndarray) -> dict[str, np.ndarray]:
     normalized = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
     blurred = cv2.GaussianBlur(normalized, (5, 5), 0)
 
-    # Closing helps reconnect broken paper borders before contour search.
-    raw_edges = cv2.Canny(blurred, 50, 150)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-    edges = cv2.morphologyEx(raw_edges, cv2.MORPH_CLOSE, kernel, iterations=1)
+    median_value = float(np.median(blurred))
+    lower_edge_threshold = max(0, int(median_value * 0.66))
+    upper_edge_threshold = min(255, int(median_value * 1.33))
+    raw_edges = cv2.Canny(blurred, lower_edge_threshold, upper_edge_threshold)
+
+    edge_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    edges = cv2.morphologyEx(raw_edges, cv2.MORPH_CLOSE, edge_kernel, iterations=2)
+    edges = cv2.dilate(edges, edge_kernel, iterations=1)
+
+    _, document_mask = cv2.threshold(
+        blurred,
+        0,
+        255,
+        cv2.THRESH_BINARY + cv2.THRESH_OTSU,
+    )
+    document_mask = cv2.morphologyEx(
+        document_mask,
+        cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_RECT, (11, 11)),
+        iterations=2,
+    )
+    document_mask = cv2.morphologyEx(
+        document_mask,
+        cv2.MORPH_OPEN,
+        cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5)),
+        iterations=1,
+    )
 
     return {
         "gray": gray,
         "normalized": normalized,
         "blurred": blurred,
         "edges": edges,
+        "document_mask": document_mask,
     }
 
 def encode_png_base64(image: np.ndarray) -> str:
