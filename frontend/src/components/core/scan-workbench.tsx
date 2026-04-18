@@ -30,14 +30,28 @@ export function ScanWorkbench() {
           transition={{ delay: 0.08, duration: 0.5 }}
         >
           <ScanWorkbenchUploadPanel
-            selectedFile={workbench.selectedFile}
+            activeUploadId={workbench.activeUploadId}
+            failureCount={workbench.failureCount}
+            successCount={workbench.successCount}
+            uploads={workbench.uploads}
             isBusy={workbench.isBusy}
+            isBatch={workbench.isBatch}
+            isDragActive={workbench.isDragActive}
             error={workbench.error}
             debugEnabled={workbench.debugEnabled}
             ocrLanguages={workbench.ocrLanguages}
+            scanMode={workbench.scanMode}
+            onClearUploads={workbench.handleClearUploads}
+            onDragEnter={workbench.handleDragEnter}
+            onDragLeave={workbench.handleDragLeave}
+            onDragOver={workbench.handleDragOver}
+            onDrop={workbench.handleDrop}
             onFileChange={workbench.handleFileChange}
+            onLoadSample={workbench.handleLoadSample}
             onOcrLanguagesChange={workbench.handleOcrLanguagesChange}
             onScan={workbench.handleScan}
+            onScanModeChange={workbench.handleScanModeChange}
+            onSelectUpload={workbench.handleSelectUpload}
             onToggleDebug={workbench.handleToggleDebug}
           />
         </motion.div>
@@ -49,15 +63,19 @@ export function ScanWorkbench() {
             transition={{ delay: 0.12, duration: 0.55 }}
           >
             <ScanWorkbenchReviewBoard
+              activeItemError={workbench.activeItemError}
+              activeUploadId={workbench.activeUploadId}
               previewUrl={workbench.previewUrl}
               scannedPreview={workbench.scannedPreview}
               result={workbench.result}
+              uploads={workbench.uploads}
               copied={workbench.copied}
               confidenceValue={workbench.confidenceValue}
               transcript={workbench.deferredTranscript}
               onCopyTranscript={workbench.handleCopyTranscript}
               onDownloadPdf={workbench.handleDownloadPdf}
               onDownloadPng={workbench.handleDownload}
+              onSelectUpload={workbench.handleSelectUpload}
             />
           </motion.div>
 

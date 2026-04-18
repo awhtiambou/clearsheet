@@ -1,5 +1,7 @@
 "use client";
 
+import type { OcrToken } from "@/src/types";
+
 const PDF_PAGE_WIDTH = 595.28;
 const PDF_PAGE_HEIGHT = 841.89;
 const PDF_MARGIN = 28;
@@ -7,6 +9,7 @@ const PDF_MARGIN = 28;
 type PdfImagePayload = {
   height: number;
   jpegBytes: Uint8Array;
+  tokens: OcrToken[];
   width: number;
 };
 
@@ -17,8 +20,12 @@ export function downloadDataUrl(dataUrl: string, filename: string) {
   anchor.click();
 }
 
-export async function downloadDataUrlAsPdf(dataUrl: string, filename: string) {
-  const pdfImage = await buildPdfImagePayload(dataUrl);
+export async function downloadDataUrlAsPdf(
+  dataUrl: string,
+  filename: string,
+  tokens: OcrToken[] = [],
+) {
+  const pdfImage = await buildPdfImagePayload(dataUrl, tokens);
   const pdfBytes = buildPdfDocument(pdfImage);
   const pdfBlob = new Blob([pdfBytes.slice()], { type: "application/pdf" });
   const objectUrl = URL.createObjectURL(pdfBlob);
@@ -30,7 +37,10 @@ export async function downloadDataUrlAsPdf(dataUrl: string, filename: string) {
   }
 }
 
-async function buildPdfImagePayload(dataUrl: string): Promise<PdfImagePayload> {
+async function buildPdfImagePayload(
+  dataUrl: string,
+  tokens: OcrToken[],
+): Promise<PdfImagePayload> {
   const image = await loadImage(dataUrl);
   const canvas = document.createElement("canvas");
 
@@ -52,6 +62,7 @@ async function buildPdfImagePayload(dataUrl: string): Promise<PdfImagePayload> {
   return {
     height: canvas.height,
     jpegBytes,
+    tokens,
     width: canvas.width,
   };
 }
@@ -81,7 +92,7 @@ function decodeBase64DataUrl(dataUrl: string): Uint8Array {
   return bytes;
 }
 
-function buildPdfDocument({ height, jpegBytes, width }: PdfImagePayload): Uint8Array {
+function buildPdfDocument({ height, jpegBytes, tokens, width }: PdfImagePayload): Uint8Array {
   const encoder = new TextEncoder();
   const header = encodeText("%PDF-1.4\n", encoder);
   const isLandscape = width > height;
@@ -95,20 +106,20 @@ function buildPdfDocument({ height, jpegBytes, width }: PdfImagePayload): Uint8A
   const drawHeight = height * scale;
   const offsetX = (pageWidth - drawWidth) / 2;
   const offsetY = (pageHeight - drawHeight) / 2;
-  const contentStream = [
-    "q",
-    `${formatPdfNumber(drawWidth)} 0 0 ${formatPdfNumber(drawHeight)} ${formatPdfNumber(offsetX)} ${formatPdfNumber(offsetY)} cm`,
-    "/Im0 Do",
-    "Q",
-    "",
-  ].join("\n");
+  const contentStream = buildContentStream({
+    drawHeight,
+    drawWidth,
+    offsetX,
+    offsetY,
+    tokens,
+  });
 
   const objectChunks: Uint8Array[][] = [
     [encodeText("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n", encoder)],
     [encodeText("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n", encoder)],
     [
       encodeText(
-        `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${formatPdfNumber(pageWidth)} ${formatPdfNumber(pageHeight)}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`,
+        `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${formatPdfNumber(pageWidth)} ${formatPdfNumber(pageHeight)}] /Resources << /ProcSet [/PDF /Text /ImageC] /Font << /F1 6 0 R >> /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`,
         encoder,
       ),
     ],
@@ -123,6 +134,12 @@ function buildPdfDocument({ height, jpegBytes, width }: PdfImagePayload): Uint8A
     [
       encodeText(
         `5 0 obj\n<< /Length ${encoder.encode(contentStream).length} >>\nstream\n${contentStream}endstream\nendobj\n`,
+        encoder,
+      ),
+    ],
+    [
+      encodeText(
+        "6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n",
         encoder,
       ),
     ],
@@ -149,11 +166,67 @@ function buildPdfDocument({ height, jpegBytes, width }: PdfImagePayload): Uint8A
     encoder,
   );
 
-  return concatenateUint8Arrays([
-    header,
-    ...objectChunks.flat(),
-    xref,
-  ]);
+  return concatenateUint8Arrays([header, ...objectChunks.flat(), xref]);
+}
+
+function buildContentStream({
+  drawHeight,
+  drawWidth,
+  offsetX,
+  offsetY,
+  tokens,
+}: {
+  drawHeight: number;
+  drawWidth: number;
+  offsetX: number;
+  offsetY: number;
+  tokens: OcrToken[];
+}) {
+  const drawImageCommands = [
+    "q",
+    `${formatPdfNumber(drawWidth)} 0 0 ${formatPdfNumber(drawHeight)} ${formatPdfNumber(offsetX)} ${formatPdfNumber(offsetY)} cm`,
+    "/Im0 Do",
+    "Q",
+  ];
+
+  const textLayerCommands = tokens
+    .filter((token) => token.text.trim().length > 0)
+    .map((token) => buildInvisibleTextCommand(token, drawWidth, drawHeight, offsetX, offsetY));
+
+  return [...drawImageCommands, ...textLayerCommands, ""].join("\n");
+}
+
+function buildInvisibleTextCommand(
+  token: OcrToken,
+  drawWidth: number,
+  drawHeight: number,
+  offsetX: number,
+  offsetY: number,
+) {
+  const fontSize = Math.max(6, token.height * drawHeight * 0.9);
+  const x = offsetX + token.x * drawWidth;
+  const y = offsetY + (1 - token.y - token.height) * drawHeight;
+
+  return [
+    "BT",
+    "3 Tr",
+    `/F1 ${formatPdfNumber(fontSize)} Tf`,
+    `1 0 0 1 ${formatPdfNumber(x)} ${formatPdfNumber(y)} Tm`,
+    `<${encodePdfHexString(token.text)}> Tj`,
+    "ET",
+  ].join("\n");
+}
+
+function encodePdfHexString(value: string) {
+  let hex = "";
+
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 63;
+    const byte = code <= 255 ? code : 63;
+    hex += byte.toString(16).padStart(2, "0").toUpperCase();
+  }
+
+  return hex;
 }
 
 function formatPdfNumber(value: number) {

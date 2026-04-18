@@ -14,6 +14,7 @@ class Settings:
     cors_origins: list[str]
     ocr_langs: str
     max_upload_mb: int
+    scan_mode: str
     app_name: str = "ClearSheet"
     tesseract_cmd: str = "tesseract"
     tessdata_prefix: str | None = None
@@ -31,6 +32,7 @@ def get_settings() -> Settings:
         cors_origins=[item.strip() for item in origins.split(",") if item.strip()],
         ocr_langs=os.getenv("OCR_LANGS", "fra+eng"),
         max_upload_mb=int(os.getenv("MAX_UPLOAD_MB", "10")),
+        scan_mode=os.getenv("SCAN_MODE", "balanced"),
         tesseract_cmd=tesseract_cmd or "tesseract",
         tessdata_prefix=tessdata_prefix,
     )

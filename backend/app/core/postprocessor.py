@@ -1,4 +1,5 @@
 import os
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
@@ -12,6 +13,31 @@ OCR_CONFIGS = (
     "--oem 1 --psm 4",
     "--oem 3 --psm 4",
 )
+SUPPORTED_SCAN_MODES = ("clean", "balanced", "ocr-optimized")
+
+
+@dataclass
+class OcrToken:
+    text: str
+    confidence: float
+    x: float
+    y: float
+    width: float
+    height: float
+
+
+@dataclass
+class OcrExtraction:
+    text: str
+    mean_confidence: float
+    tokens: list[OcrToken]
+
+
+def validate_scan_mode(scan_mode: str) -> str:
+    normalized_scan_mode = scan_mode.strip().lower()
+    if normalized_scan_mode not in SUPPORTED_SCAN_MODES:
+        raise ValueError("invalid_scan_mode")
+    return normalized_scan_mode
 
 
 def _to_grayscale(image: np.ndarray) -> np.ndarray:
@@ -123,7 +149,57 @@ def _run_ocr_text(image: np.ndarray, languages: str, config: str) -> str:
         raise RuntimeError(f"OCR processing failed: {exc}") from exc
 
 
-def _build_ocr_variants(document_image: np.ndarray) -> list[tuple[str, np.ndarray]]:
+def _thicken_text(binary_scan: np.ndarray, kernel_size: int) -> np.ndarray:
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
+    return 255 - cv2.dilate(255 - binary_scan, kernel, iterations=1)
+
+
+def _scan_mode_parameters(scan_mode: str) -> dict[str, float | tuple[int, int]]:
+    normalized_scan_mode = validate_scan_mode(scan_mode)
+
+    if normalized_scan_mode == "clean":
+        return {
+            "clip_limit": 1.9,
+            "tile_grid": (8, 8),
+            "sharp_amount": 1.35,
+            "sharp_blur": 1.0,
+            "median_kernel": 3,
+            "block_divisor": 15,
+            "threshold_c": 11,
+            "text_expansion": 0,
+        }
+
+    if normalized_scan_mode == "ocr-optimized":
+        return {
+            "clip_limit": 2.6,
+            "tile_grid": (8, 8),
+            "sharp_amount": 1.65,
+            "sharp_blur": 1.15,
+            "median_kernel": 3,
+            "block_divisor": 21,
+            "threshold_c": 7,
+            "text_expansion": 2,
+        }
+
+    return {
+        "clip_limit": 2.2,
+        "tile_grid": (8, 8),
+        "sharp_amount": 1.45,
+        "sharp_blur": 1.1,
+        "median_kernel": 3,
+        "block_divisor": 18,
+        "threshold_c": 9,
+        "text_expansion": 0,
+    }
+
+
+def _build_ocr_variants(
+    document_image: np.ndarray,
+    scan_image: np.ndarray,
+    scan_mode: str,
+) -> list[tuple[str, np.ndarray]]:
+    validate_scan_mode(scan_mode)
+
     gray = _prepare_document_gray(document_image, min_longest_side=1400)
     unsharp = cv2.addWeighted(
         gray,
@@ -133,12 +209,78 @@ def _build_ocr_variants(document_image: np.ndarray) -> list[tuple[str, np.ndarra
         0,
     )
     flattened = _normalize_document_gray(document_image, min_longest_side=1400)
+    scan_gray = _prepare_document_gray(scan_image, min_longest_side=1400)
+    scan_clean = cv2.medianBlur(scan_gray, 3)
+    ocr_boost = cv2.adaptiveThreshold(
+        flattened,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        25,
+        8,
+    )
+    ocr_boost = _thicken_text(ocr_boost, 2)
+
+    if scan_mode == "clean":
+        return [
+            ("scan", scan_clean),
+            ("flattened", flattened),
+            ("gray", gray),
+            ("unsharp", unsharp),
+            ("ocr-boost", ocr_boost),
+        ]
+
+    if scan_mode == "ocr-optimized":
+        return [
+            ("ocr-boost", ocr_boost),
+            ("scan", scan_clean),
+            ("flattened", flattened),
+            ("unsharp", unsharp),
+            ("gray", gray),
+        ]
 
     return [
+        ("scan", scan_clean),
         ("gray", gray),
-        ("unsharp", unsharp),
         ("flattened", flattened),
+        ("unsharp", unsharp),
+        ("ocr-boost", ocr_boost),
     ]
+
+
+def _build_ocr_tokens(data: dict[str, list[str]], image_shape: tuple[int, int]) -> list[OcrToken]:
+    height, width = image_shape[:2]
+    tokens: list[OcrToken] = []
+
+    for index, raw_text in enumerate(data.get("text", [])):
+        text = str(raw_text).strip()
+        if not text:
+            continue
+
+        try:
+            confidence = float(data["conf"][index])
+            left = max(0, int(data["left"][index]))
+            top = max(0, int(data["top"][index]))
+            token_width = max(1, int(data["width"][index]))
+            token_height = max(1, int(data["height"][index]))
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+
+        if confidence < 0:
+            continue
+
+        tokens.append(
+            OcrToken(
+                text=text,
+                confidence=round(confidence, 2),
+                x=round(left / float(width), 6),
+                y=round(top / float(height), 6),
+                width=round(token_width / float(width), 6),
+                height=round(token_height / float(height), 6),
+            )
+        )
+
+    return tokens
 
 
 def _clean_binary_scan(binary_scan: np.ndarray) -> np.ndarray:
@@ -175,23 +317,27 @@ def _clean_binary_scan(binary_scan: np.ndarray) -> np.ndarray:
     return 255 - cleaned_inverted
 
 
-def build_scan_image(warped: np.ndarray) -> np.ndarray:
+def build_scan_image(warped: np.ndarray, scan_mode: str = "balanced") -> np.ndarray:
     if warped is None or warped.size == 0:
         raise ValueError("invalid_image")
 
+    parameters = _scan_mode_parameters(scan_mode)
     normalized = _normalize_document_gray(warped, min_longest_side=1400)
-    clahe = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(8, 8))
+    clahe = cv2.createCLAHE(
+        clipLimit=float(parameters["clip_limit"]),
+        tileGridSize=tuple(parameters["tile_grid"]),
+    )
     enhanced = clahe.apply(normalized)
     sharpened = cv2.addWeighted(
         enhanced,
-        1.45,
-        cv2.GaussianBlur(enhanced, (0, 0), 1.1),
-        -0.45,
+        float(parameters["sharp_amount"]),
+        cv2.GaussianBlur(enhanced, (0, 0), float(parameters["sharp_blur"])),
+        1.0 - float(parameters["sharp_amount"]),
         0,
     )
-    denoised = cv2.medianBlur(sharpened, 3)
+    denoised = cv2.medianBlur(sharpened, int(parameters["median_kernel"]))
 
-    block_size = max(25, (min(denoised.shape[:2]) // 18) | 1)
+    block_size = max(21, (min(denoised.shape[:2]) // int(parameters["block_divisor"])) | 1)
     if block_size % 2 == 0:
         block_size += 1
 
@@ -201,24 +347,36 @@ def build_scan_image(warped: np.ndarray) -> np.ndarray:
         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
         cv2.THRESH_BINARY,
         block_size,
-        9,
+        int(parameters["threshold_c"]),
     )
+
+    if int(parameters["text_expansion"]) > 0:
+        scan = _thicken_text(scan, int(parameters["text_expansion"]))
+
     return _clean_binary_scan(scan)
 
 
-def extract_text(document_image: np.ndarray, languages: str) -> tuple[str, float]:
+def extract_text(
+    document_image: np.ndarray,
+    scan_image: np.ndarray,
+    languages: str,
+    scan_mode: str = "balanced",
+) -> OcrExtraction:
     if document_image is None or document_image.size == 0:
         raise ValueError("invalid_image")
+    if scan_image is None or scan_image.size == 0:
+        raise ValueError("invalid_image")
 
+    normalized_scan_mode = validate_scan_mode(scan_mode)
     _configure_tesseract()
 
     best_image: np.ndarray | None = None
+    best_data: dict[str, list[str]] | None = None
     best_config: str | None = None
     best_confidence = -1.0
-    best_content_length = -1
     best_rank = (-10_000.0, -1)
 
-    for _, candidate_image in _build_ocr_variants(document_image):
+    for _, candidate_image in _build_ocr_variants(document_image, scan_image, normalized_scan_mode):
         for config in OCR_CONFIGS:
             data = _run_ocr_data(candidate_image, languages, config)
             confidence = _mean_confidence(data)
@@ -227,13 +385,14 @@ def extract_text(document_image: np.ndarray, languages: str) -> tuple[str, float
 
             if rank > best_rank:
                 best_image = candidate_image
+                best_data = data
                 best_config = config
                 best_confidence = confidence
-                best_content_length = content_length
                 best_rank = rank
 
-    if best_image is None or best_config is None:
-        return "", 0.0
+    if best_image is None or best_data is None or best_config is None:
+        return OcrExtraction(text="", mean_confidence=0.0, tokens=[])
 
     text = _run_ocr_text(best_image, languages, best_config)
-    return text, best_confidence
+    tokens = _build_ocr_tokens(best_data, best_image.shape[:2])
+    return OcrExtraction(text=text, mean_confidence=best_confidence, tokens=tokens)
