@@ -19,20 +19,29 @@ class Settings:
     tesseract_cmd: str = "tesseract"
     tessdata_prefix: str | None = None
 
+
+def _get_env(*names: str, default: str | None = None) -> str | None:
+    for name in names:
+        value = os.getenv(name)
+        if value is not None:
+            return value
+    return default
+
+
 def get_settings() -> Settings:
-    origins = os.getenv("CORS_ORIGINS", "http://localhost:3000")
-    tesseract_cmd = os.getenv("TESSERACT_CMD")
+    origins = _get_env("CORS_ORIGINS", "CORSORIGINS", default="http://localhost:3000")
+    tesseract_cmd = _get_env("TESSERACT_CMD", "TESSERACTCMD")
     if not tesseract_cmd and DEFAULT_TESSERACT_PATH.exists():
         tesseract_cmd = str(DEFAULT_TESSERACT_PATH)
-    tessdata_prefix = os.getenv("TESSDATA_PREFIX")
+    tessdata_prefix = _get_env("TESSDATA_PREFIX", "TESSDATAPREFIX")
     if not tessdata_prefix and LOCAL_TESSDATA_PATH.exists():
         tessdata_prefix = str(LOCAL_TESSDATA_PATH)
 
     return Settings(
         cors_origins=[item.strip() for item in origins.split(",") if item.strip()],
-        ocr_langs=os.getenv("OCR_LANGS", "fra+eng"),
-        max_upload_mb=int(os.getenv("MAX_UPLOAD_MB", "10")),
-        scan_mode=os.getenv("SCAN_MODE", "balanced"),
+        ocr_langs=_get_env("OCR_LANGS", "OCRLANGS", default="fra+eng") or "fra+eng",
+        max_upload_mb=int(_get_env("MAX_UPLOAD_MB", "MAXUPLOADMB", default="10") or "10"),
+        scan_mode=_get_env("SCAN_MODE", "SCANMODE", default="balanced") or "balanced",
         tesseract_cmd=tesseract_cmd or "tesseract",
         tessdata_prefix=tessdata_prefix,
     )
